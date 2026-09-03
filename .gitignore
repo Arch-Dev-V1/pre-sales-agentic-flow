@@ -216,3 +216,24 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------------------------------------------------------------
+# Project-specific (frontend + belt-and-braces on the backend .env)
+# ---------------------------------------------------------------
+
+# Node / Vite
+node_modules/
+frontend/dist/
+.vite/
+npm-debug.log*
+
+# Secrets: .env is covered above, but be explicit — this repo's one
+# real credential lives in backend/.env. The committed template is
+# backend/.env.example, which no pattern here matches.
+*.env
+!*.env.example
+
+# macOS / editors
+.DS_Store
+.idea/
+*.swp
