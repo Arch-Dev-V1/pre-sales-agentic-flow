@@ -10,7 +10,13 @@ just wires HTTP routes to them.
 # loads after that import, the key won't be set yet. Ordering matters
 # here more than it usually would.
 from dotenv import load_dotenv
-load_dotenv()
+
+# override=True on purpose. By default python-dotenv leaves an existing
+# environment variable alone, so a stale machine-level ANTHROPIC_API_KEY
+# silently wins over backend/.env and the app 401s while the .env looks
+# perfectly correct. For a local dev tool the project's own .env should
+# be the source of truth. Run `python check_env.py` to diagnose.
+load_dotenv(override=True)
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
