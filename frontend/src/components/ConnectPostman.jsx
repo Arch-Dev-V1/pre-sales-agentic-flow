@@ -151,14 +151,20 @@ export default function ConnectPostman({ onConnected }) {
             </>
           )}
 
+          {/* Optional on purpose: most collections already name a
+              working host, either literally or via {{baseUrl}}. This is
+              for pointing the same collection at a different one. */}
           <label>
-            Sandbox base URL
+            Override base URL (optional)
             <input
               value={targetForm.targetBaseUrl}
               onChange={(e) => setTargetForm({ ...targetForm, targetBaseUrl: e.target.value })}
-              placeholder="https://sandbox.example.com"
-              required
+              placeholder="Leave empty to use the collection's own host"
             />
+            <p className="hint">
+              Sends every request to this host instead, keeping each
+              endpoint's path and query string.
+            </p>
           </label>
 
           {/* TODO: only show these if the collection's auth type actually

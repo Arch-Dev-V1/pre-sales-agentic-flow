@@ -20,7 +20,7 @@ from typing import Optional
 @dataclass
 class SessionCredentials:
     postman_api_key: str
-    target_base_url: str
+    target_base_url: Optional[str] = None
     target_username: Optional[str] = None
     target_password: Optional[str] = None
     # Anything else resolved from the Postman environment that looks

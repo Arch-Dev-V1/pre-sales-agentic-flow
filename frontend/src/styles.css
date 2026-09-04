@@ -853,3 +853,16 @@ p[role="alert"] {
   flex: none;
   gap: 9px;
 }
+
+/* Row cap overflow — a real API can return hundreds of rows; the
+   renderer caps them and says so rather than printing all of them. */
+.more {
+  padding-top: 11px;
+  margin-top: 3px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rows .more { border-top: 1px solid var(--border); }

@@ -9,6 +9,7 @@ shape, not three subtly different implementations.
 """
 
 import json
+import re
 
 import anthropic
 
@@ -68,11 +69,79 @@ async def run_agent_loop(
 
 
 def _parse_final_json(response) -> dict:
+    """Pulls the agent's final JSON out of its reply.
+
+    Models routinely wrap a perfectly valid object in a preamble and a
+    markdown fence ("## Analysis\n\n```json\n{...}\n```"), and every
+    agent prompt here documents a JSON output format rather than
+    constraining the response server-side. Parsing only the bare text
+    made that presentation choice fatal, so we look for the JSON in the
+    three places it actually turns up instead.
+    """
     text = "".join(block.text for block in response.content if block.type == "text")
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as e:
-        # TODO: for anything beyond a hackathon demo, consider one
-        # automatic retry that shows the model its own broken JSON and
-        # asks it to fix it, rather than failing the whole run outright.
-        raise ValueError(f"Agent did not return valid JSON: {e}\nRaw text: {text}")
+
+    for candidate in _json_candidates(text):
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, (dict, list)):
+            return parsed
+
+    # TODO: consider one automatic retry that shows the model its own
+    # broken output and asks it to fix it, rather than failing the run.
+    raise ValueError(f"Agent did not return valid JSON.\nRaw text: {text}")
+
+
+def _json_candidates(text: str):
+    """Yields substrings that might be the JSON payload, best guess first:
+    the whole reply, any fenced code block, then the first balanced
+    object or array found anywhere in the prose.
+    """
+    stripped = text.strip()
+    if stripped:
+        yield stripped
+
+    # ```json ... ``` or a bare ``` ... ``` fence.
+    for match in re.finditer(r"```(?:json)?\s*(.*?)```", text, re.DOTALL):
+        yield match.group(1).strip()
+
+    balanced = _first_balanced_span(text)
+    if balanced:
+        yield balanced
+
+
+def _first_balanced_span(text: str) -> str | None:
+    """Returns the first balanced {...} or [...] span, ignoring braces
+    that appear inside strings (Hebrew titles, memos and URLs in a real
+    response are full of characters that would confuse naive matching).
+    """
+    start = next((i for i, c in enumerate(text) if c in "{["), None)
+    if start is None:
+        return None
+
+    opener = text[start]
+    closer = "}" if opener == "{" else "]"
+    depth = 0
+    in_string = False
+    escaped = False
+
+    for i in range(start, len(text)):
+        char = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == opener:
+            depth += 1
+        elif char == closer:
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None

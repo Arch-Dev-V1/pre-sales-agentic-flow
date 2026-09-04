@@ -20,9 +20,14 @@ script. You never call the target API; that's the Verifier's job next.
      even when describing an onboarding-flavored endpoint).
    - `tone` — "Formal & enterprise" means precise, measured language;
      "Modern & approachable" means shorter sentences, more direct.
-   - `company_name` — if provided, weave it naturally into narration
-     where it reads well (e.g. "Here's how this would work for
-     {company_name}..."). If absent, don't force it in.
+   - `company_name` — **the prospect being sold to, i.e. the audience
+     watching this demo. It is never the name of the API or the company
+     that built it.** The API belongs to the salesperson's own side; the
+     prospect is the customer evaluating it. So write "here's how this
+     would work for {company_name}" or "{company_name}'s team would see
+     this", never "how {company_name} returns candle-lighting times",
+     which credits the prospect with building the product they are being
+     sold. If absent, don't force a company in.
    - `depth` — "Quick overview (3 steps)" means select your 3 strongest
      steps from the Analyst's candidates, not all of them. "Full
      walkthrough" means include every candidate the Analyst judged
@@ -119,8 +124,33 @@ response body** (e.g. `profile.givenName`, `signals[0].weight`).
 | `checklist` | `items[{label, value_path, pass_when}]` | several pass/fail checks |
 | `facts` | `items[{label, value_path, mono}]` | supporting key/value detail |
 | `signals` | `path`, `name_key`, `weight_key`, `label` | weighted contributions, +/- |
-| `list` | `path`, `label`, `empty_text` | an array; `empty_text` shows when empty |
-| `table` | `path`, `columns[{label, key}]` | an array of records (orders, line items) |
+| `count` | `path`, `label`, `unit` | **how many** are in an array — the response has no such field, this counts it for you |
+| `list` | `path`, `label`, `empty_text`, `max_rows`, `noun`, `label_key`, `sub_key` | an array of **simple values**, or of records where one field is the whole story (`label_key` names it) |
+| `table` | `path`, `columns[{label, key}]`, `max_rows`, `noun` | an array of records (orders, line items, calendar events) |
+
+**Long arrays: lead with `count`, then show a sample.** Real endpoints
+return hundreds of rows — a year of calendar events, a full order
+history. Nobody presents a 272-row table. Pair them:
+
+```json
+{ "type": "count", "path": "items", "label": "Events in 2026" },
+{ "type": "table", "path": "items", "max_rows": 6, "noun": "events",
+  "columns": [{ "label": "Date", "key": "date" }, { "label": "Event", "key": "title" }] }
+```
+
+`max_rows` caps what's drawn and the rest becomes a "+ 266 more events"
+footer. If you omit it, the frontend caps at 8 anyway — so the choice is
+whether the cap is yours or the default, never whether there is one.
+`noun` is what those extra rows are called, in the collection's own
+language ("events", "orders", "shipments").
+
+**`list` vs `table` for an array of records.** If each record has
+several fields worth seeing, use `table` and name the columns. Use
+`list` only when one field carries the meaning — then set `label_key`
+to that field (and `sub_key` for a secondary value like a date). A
+`list` over records with no readable label renders nothing at all,
+because dumping raw JSON onto a customer's screen is worse than
+showing less.
 
 `tone` is one of `pass`, `warn`, `critical`, `neutral` — it describes
 **meaning**, not colour. `pass_when` is the value that counts as a pass
@@ -142,7 +172,10 @@ Rules for this pass:
 
 ### Presentation pass output format
 
-Return **only** this, with one entry per step you were given:
+Return **only** this, with one entry per step you were given.
+
+Return **only** the JSON object — no preamble, no commentary after it,
+and no markdown code fences. Your entire reply must be the JSON itself.
 
 ```json
 {
@@ -166,7 +199,10 @@ Return **only** this, with one entry per step you were given:
 
 ## Output format
 
-For the **sequencing pass** (the default), return structured JSON:
+For the **sequencing pass** (the default), return structured JSON.
+
+Return **only** the JSON object — no preamble, no commentary after it,
+and no markdown code fences. Your entire reply must be the JSON itself.
 
 ```json
 {

@@ -66,7 +66,11 @@ class ConnectRequest(BaseModel):
     postman_api_key: str
     collection_id: str
     environment_id: str | None = None  # optional — see extract_collection_variables for the fallback
-    target_base_url: str  # any host; optionally restricted by config.HOST_ALLOWLIST
+    # Optional. When set, every resolved request URL is pointed at this
+    # host, keeping its path and query — works whether the collection
+    # uses {{baseUrl}} or hardcodes full URLs. Empty means "use the
+    # host the collection already names".
+    target_base_url: str | None = None
     target_username: str | None = None
     target_password: str | None = None
 
@@ -181,7 +185,13 @@ async def generate_demo(req: GenerateDemoRequest):
     # Re-raising as an HTTPException keeps the response on the normal
     # path, headers and all, so the detail actually reaches the UI.
     try:
-        result = await run_pipeline(collection, list(resolution_values.keys()), resolution_values, req.demo_config.model_dump())
+        result = await run_pipeline(
+            collection,
+            list(resolution_values.keys()),
+            resolution_values,
+            req.demo_config.model_dump(),
+            session.target_base_url,
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -217,7 +227,11 @@ async def run_step(req: RunStepRequest):
 
     try:
         return await execute_endpoint(
-            endpoint, req.payload, resolution_values, req.prior_responses
+            endpoint,
+            req.payload,
+            resolution_values,
+            req.prior_responses,
+            session.target_base_url,
         )
     except api_proxy.HostNotAllowedError as e:
         # A hard guardrail, not a server fault — 403 says "refused",

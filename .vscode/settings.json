@@ -1,0 +1,18 @@
+{
+  // Point the editor at the project's venv, not the system Python.
+  // Without this, Pylance reports "Import 'fastapi' could not be
+  // resolved" — the packages are installed, just not in the
+  // interpreter the editor was looking at.
+  "python.defaultInterpreterPath": "${workspaceFolder}/backend/venv/bin/python",
+
+  // The backend imports its own modules flatly (`import config`,
+  // `from postman_parser import parse_collection`), so Pylance needs
+  // backend/ on the path or those show as unresolved too.
+  "python.analysis.extraPaths": ["${workspaceFolder}/backend"],
+
+  "python.terminal.activateEnvironment": true,
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/node_modules": true
+  }
+}

@@ -12,6 +12,7 @@ passed to which agent, and why).
 
 import json
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 
 from agent_runtime import run_agent_loop
 import api_proxy
@@ -154,11 +155,50 @@ async def run_presenter(
         return []
 
 
+def apply_base_url_override(url: str, override: str | None) -> str:
+    """Point a fully-resolved request URL at a different host.
+
+    Deliberately operates on the FINAL url rather than on a {{baseUrl}}
+    variable, which is what makes it work for every collection:
+
+      - collections with variables  — {{baseUrl}}/v1/x has already been
+        resolved to a concrete URL by the time we get here;
+      - collections without any     — a literal
+        https://www.hebcal.com/shabbat?cfg=json is concrete already.
+
+    Either way we swap scheme and host and keep everything else, so
+    paths and query strings survive untouched. A variable-substitution
+    approach would have to guess the variable's name and would do
+    nothing at all for the literal case.
+
+    An empty override means "leave the collection's own host alone",
+    which is the default.
+    """
+    if not override or not override.strip():
+        return url
+
+    target = override.strip()
+    if "://" not in target:
+        target = "https://" + target  # tolerate "sandbox.example.com"
+
+    base, original = urlparse(target), urlparse(url)
+    # A typo shouldn't silently produce a broken host like
+    # "https://not a url/..." — if it isn't plausibly a hostname, leave
+    # the collection's own URL alone rather than mangling it.
+    if not base.netloc or any(c.isspace() for c in base.netloc):
+        return url
+
+    return urlunparse(
+        (base.scheme, base.netloc, original.path, original.params, original.query, original.fragment)
+    )
+
+
 async def execute_endpoint(
     endpoint: dict,
     body: dict | None,
     resolution_values: dict,
     captured_responses: dict[int, dict] | None = None,
+    base_url_override: str | None = None,
 ) -> dict:
     """Resolve one endpoint's payload/URL/headers and make the single
     real call to the target API.
@@ -181,6 +221,7 @@ async def execute_endpoint(
     body = resolve_environment_variables(body, resolution_values)
 
     url = resolve_environment_variables(endpoint["url"], resolution_values)
+    url = apply_base_url_override(url, base_url_override)
 
     headers = {
         h["key"]: resolve_environment_variables(h["value"], resolution_values)
@@ -194,7 +235,12 @@ async def execute_endpoint(
     return await api_proxy.call_api(endpoint["method"], url, headers, body)
 
 
-async def run_verifier(sequencer_output: dict, endpoints: list[dict], resolution_values: dict) -> dict:
+async def run_verifier(
+    sequencer_output: dict,
+    endpoints: list[dict],
+    resolution_values: dict,
+    base_url_override: str | None = None,
+) -> dict:
     """Verifier pass: best reasoning model, the only agent with
     call_target_api. Returns {"judgment": ..., "raw_responses": ...} —
     see the docstring note further down for why those stay separate.
@@ -213,7 +259,15 @@ async def run_verifier(sequencer_output: dict, endpoints: list[dict], resolution
     # model's own summarized text — this is what becomes "raw_responses"
     # below, and what DemoRunner.jsx actually renders. See the README
     # and the earlier fix to this file for why that distinction matters.
+    # Two views of the same calls, deliberately kept separate:
+    #   captured_responses -> bare bodies, what {{stepN.response.x}}
+    #     threading and the presentation pass both need;
+    #   captured_results   -> {status_code, body}, what the frontend
+    #     renders. /run-step already returns that second shape, and the
+    #     two must match or DemoRunner reads `.body` off a bare body and
+    #     renders an empty screen.
     captured_responses: dict[int, dict] = {}
+    captured_results: dict[int, dict] = {}
 
     async def tool_executor(name: str, tool_input: dict) -> dict:
         if name != "call_target_api":
@@ -226,7 +280,11 @@ async def run_verifier(sequencer_output: dict, endpoints: list[dict], resolution
 
         try:
             result = await execute_endpoint(
-                endpoint, tool_input["resolved_body"], resolution_values, captured_responses
+                endpoint,
+                tool_input["resolved_body"],
+                resolution_values,
+                captured_responses,
+                base_url_override,
             )
         except api_proxy.HostNotAllowedError as e:
             return {"error": str(e)}
@@ -234,6 +292,7 @@ async def run_verifier(sequencer_output: dict, endpoints: list[dict], resolution
         step_number = step_number_by_endpoint.get(endpoint_id)
         if step_number is not None:
             captured_responses[step_number] = result["body"]
+            captured_results[step_number] = result
 
         return result
 
@@ -245,11 +304,19 @@ async def run_verifier(sequencer_output: dict, endpoints: list[dict], resolution
         tool_executor=tool_executor,
     )
 
-    return {"judgment": judgment, "raw_responses": captured_responses}
+    return {
+        "judgment": judgment,
+        "raw_responses": captured_results,   # for the UI
+        "bodies": captured_responses,        # for threading + the presenter
+    }
 
 
 async def run_pipeline(
-    collection: dict, environment_var_names: list[str], resolution_values: dict, demo_config: dict
+    collection: dict,
+    environment_var_names: list[str],
+    resolution_values: dict,
+    demo_config: dict,
+    base_url_override: str | None = None,
 ) -> dict:
     """Top-level orchestration: Analyst -> Sequencer -> Verifier, with the
     correction loop between Sequencer and Verifier. The collection is
@@ -267,13 +334,16 @@ async def run_pipeline(
     sequencer_output = await run_sequencer(analyst_output, demo_config)
 
     for round_num in range(MAX_CORRECTION_ROUNDS + 1):
-        verifier_result = await run_verifier(sequencer_output, endpoints, resolution_values)
+        verifier_result = await run_verifier(
+            sequencer_output, endpoints, resolution_values, base_url_override
+        )
         verifier_judgment = verifier_result["judgment"]
         raw_responses = verifier_result["raw_responses"]
+        bodies = verifier_result["bodies"]
 
         if verifier_judgment["overall_status"] == "verified":
             # Only worth designing screens for a demo someone will show.
-            screens = await run_presenter(sequencer_output, raw_responses, demo_config)
+            screens = await run_presenter(sequencer_output, bodies, demo_config)
             return {
                 "status": "verified",
                 "demo_script": sequencer_output,

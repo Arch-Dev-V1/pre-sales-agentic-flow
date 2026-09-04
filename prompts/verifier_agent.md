@@ -48,6 +48,9 @@ ever sees them live in front of a prospect.
 
 ## Output format
 
+Return **only** the JSON object — no preamble, no commentary after it,
+and no markdown code fences. Your entire reply must be the JSON itself.
+
 Return structured JSON:
 
 ```json

@@ -221,6 +221,42 @@ function Signals({ block, body }) {
   );
 }
 
+// A real API can return hundreds of rows (a year of calendar events, a
+// full order history). Nobody presents a 272-row table, so cap it here
+// even when the agent forgets to — this is the frontend's layout call,
+// not the agent's.
+const DEFAULT_MAX_ROWS = 8;
+
+function rowLimit(block) {
+  const n = Number(block.max_rows);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_ROWS;
+}
+
+function MoreFooter({ hidden, noun }) {
+  if (hidden <= 0) return null;
+  return (
+    <div className="more">
+      + {hidden.toLocaleString()} more {noun}
+    </div>
+  );
+}
+
+function Count({ block, body }) {
+  const raw = getPath(body, block.path);
+  if (!Array.isArray(raw)) return null;
+  // Aggregation the response itself doesn't carry — "272 events" is the
+  // obvious headline for a list endpoint, but no field holds that number.
+  return (
+    <div className="card">
+      <div className={`metric ${toneClass(block.tone)}`}>
+        {raw.length.toLocaleString()}
+        {block.unit && <span className="metric-u">{block.unit}</span>}
+      </div>
+      {block.label && <div className="metric-l">{block.label}</div>}
+    </div>
+  );
+}
+
 function ListBlock({ block, body }) {
   const raw = getPath(body, block.path);
   if (!Array.isArray(raw)) return null;
@@ -234,24 +270,58 @@ function ListBlock({ block, body }) {
     ) : null;
   }
 
+  const limit = rowLimit(block);
+  const shown = raw.slice(0, limit).map((item) => listRow(item, block));
+  const usableRows = shown.filter((r) => r !== null);
+  if (usableRows.length === 0) return null;
+
   return (
     <div className="card rows">
       {block.label && <div className="block-l">{block.label}</div>}
-      {raw.map((item, i) => (
+      {usableRows.map((row, i) => (
         <div className="row" key={i}>
-          <span className="row-k">
-            {typeof item === "object" ? display(item) : String(item).replace(/[_-]+/g, " ")}
-          </span>
+          <span className="row-k">{row.primary}</span>
+          {row.secondary && <span className="row-v">{row.secondary}</span>}
         </div>
       ))}
+      <MoreFooter hidden={raw.length - shown.length} noun={block.noun ?? "items"} />
     </div>
   );
+}
+
+// An array of records is really a `table`, but agents reach for `list`
+// anyway. Rendering the whole object as JSON puts
+// {"title":"Candle lighting: 5:38pm","date":...} on a prospect's screen,
+// so pick the one field a person would actually read instead.
+const LABEL_KEYS = ["title", "name", "label", "summary", "description", "message", "id"];
+const SUB_KEYS = ["date", "time", "status", "category", "type", "value", "amount"];
+
+function listRow(item, block) {
+  if (item === null || item === undefined) return null;
+  if (typeof item !== "object") {
+    return { primary: String(item).replace(/[_-]+/g, " "), secondary: null };
+  }
+
+  const pick = (keys, explicit) => {
+    if (explicit && usable(item[explicit])) return display(item[explicit]);
+    const key = keys.find((k) => usable(item[k]) && typeof item[k] !== "object");
+    return key ? display(item[key]) : null;
+  };
+
+  const primary = pick(LABEL_KEYS, block.label_key);
+  // Nothing human-readable in this record — skip it rather than dump
+  // JSON onto the screen.
+  if (!primary) return null;
+  return { primary, secondary: pick(SUB_KEYS, block.sub_key) };
 }
 
 function TableBlock({ block, body }) {
   const raw = getPath(body, block.path);
   const cols = block.columns ?? [];
   if (!Array.isArray(raw) || raw.length === 0 || cols.length === 0) return null;
+
+  const limit = rowLimit(block);
+  const shown = raw.slice(0, limit);
 
   return (
     <div className="card">
@@ -264,7 +334,7 @@ function TableBlock({ block, body }) {
             <tr>{cols.map((c, i) => <th key={i}>{c.label}</th>)}</tr>
           </thead>
           <tbody>
-            {raw.map((row, i) => (
+            {shown.map((row, i) => (
               <tr key={i}>
                 {cols.map((c, j) => {
                   const v = getPath(row, c.key);
@@ -275,12 +345,14 @@ function TableBlock({ block, body }) {
           </tbody>
         </table>
       </div>
+      <MoreFooter hidden={raw.length - shown.length} noun={block.noun ?? "rows"} />
     </div>
   );
 }
 
 const RENDERERS = {
   identity: Identity,
+  count: Count,
   verdict: Verdict,
   metric: Metric,
   gauge: Gauge,

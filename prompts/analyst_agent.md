@@ -55,6 +55,9 @@ names only — see Rules below), you must:
 
 ## Output format
 
+Return **only** the JSON object — no preamble, no commentary after it,
+and no markdown code fences. Your entire reply must be the JSON itself.
+
 Return structured JSON:
 
 ```json

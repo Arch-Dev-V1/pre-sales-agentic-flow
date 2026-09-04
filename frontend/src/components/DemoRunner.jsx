@@ -43,7 +43,18 @@ export default function DemoRunner({
   const screenFor = (n) => (screens ?? []).find((s) => s.step_number === n);
   const screen = screenFor(step.step_number) ?? {};
 
-  const recorded = rawResponses?.[step.step_number];
+  // A recorded response is {status_code, body}, same as a live one. Be
+  // tolerant of a bare body anyway: a demo generated before the two
+  // shapes were unified would otherwise render a blank screen rather
+  // than the data it actually captured.
+  const asResult = (r) =>
+    r && typeof r === "object" && "body" in r && "status_code" in r
+      ? r
+      : r === undefined || r === null
+        ? undefined
+        : { status_code: null, body: r };
+
+  const recorded = asResult(rawResponses?.[step.step_number]);
   const live = liveResponses[step.step_number];
   const response = live ?? recorded;
   const isLive = Boolean(live);
@@ -57,8 +68,20 @@ export default function DemoRunner({
   const draft = drafts[step.step_number] ?? JSON.stringify(step.resolved_payload, null, 2);
   const canRunLive = Boolean(sessionId && collectionId);
 
+  const isLastStep = current === steps.length - 1;
+
   const goTo = (n) => {
     setCurrent(n);
+    setLiveError(null);
+  };
+
+  // Back to step one on the verified baseline, so the next prospect
+  // doesn't inherit live results from the previous run. Edited payloads
+  // are cleared for the same reason.
+  const restart = () => {
+    setCurrent(0);
+    setLiveResponses({});
+    setDrafts({});
     setLiveError(null);
   };
 
@@ -80,8 +103,11 @@ export default function DemoRunner({
         endpointId: step.endpoint_id,
         payload,
         // Lets a step that threads {{stepN.response.field}} from an
-        // earlier step still resolve when run on its own.
-        priorResponses: rawResponses ?? {},
+        // earlier step still resolve when run on its own. The backend
+        // resolves against bare bodies, so unwrap them here.
+        priorResponses: Object.fromEntries(
+          Object.entries(rawResponses ?? {}).map(([n, r]) => [n, asResult(r)?.body])
+        ),
       });
       setLiveResponses((prev) => ({ ...prev, [step.step_number]: result }));
     } catch (e) {
@@ -150,9 +176,11 @@ export default function DemoRunner({
               // No usable blocks for this step — show the response
               // rather than an empty screen.
               <div className="card">
-                <p className={response.status_code < 400 ? "status ok" : "status bad"}>
-                  {response.status_code}
-                </p>
+                {response.status_code != null && (
+                  <p className={response.status_code < 400 ? "status ok" : "status bad"}>
+                    {response.status_code}
+                  </p>
+                )}
                 <pre>{JSON.stringify(body, null, 2)}</pre>
               </div>
             )
@@ -188,9 +216,11 @@ export default function DemoRunner({
               <>
                 <div className="raw-head">
                   <span>Response</span>
-                  <span className={response.status_code < 400 ? "status ok" : "status bad"}>
-                    {response.status_code}
-                  </span>
+                  {response.status_code != null && (
+                    <span className={response.status_code < 400 ? "status ok" : "status bad"}>
+                      {response.status_code}
+                    </span>
+                  )}
                 </div>
                 <pre>{JSON.stringify(body, null, 2)}</pre>
               </>
@@ -223,14 +253,19 @@ export default function DemoRunner({
           <button type="button" onClick={() => goTo(current - 1)} disabled={current === 0}>
             Back
           </button>
-          <button
-            type="button"
-            className="primary"
-            onClick={() => goTo(current + 1)}
-            disabled={current === steps.length - 1}
-          >
-            {current === steps.length - 1 ? "Done" : "Continue"}
-          </button>
+          {/* On the last step this used to read "Done" and be disabled,
+              which looks broken at the exact moment the demo lands.
+              Restarting is what's actually wanted next — the same demo
+              gets given to the next prospect. */}
+          {isLastStep ? (
+            <button type="button" className="primary" onClick={restart}>
+              Start over
+            </button>
+          ) : (
+            <button type="button" className="primary" onClick={() => goTo(current + 1)}>
+              Continue
+            </button>
+          )}
         </div>
       </footer>
     </div>
