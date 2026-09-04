@@ -9,6 +9,22 @@ just wires HTTP routes to them.
 # TIME (reading ANTHROPIC_API_KEY from the environment). If dotenv
 # loads after that import, the key won't be set yet. Ordering matters
 # here more than it usually would.
+# Trust the operating system's certificate store, not just the CA bundle
+# that ships with Python. On a corporate network a proxy (Zscaler,
+# Netskope, and friends) re-signs TLS with its own root CA: that CA is
+# installed in the Windows/macOS trust store, but not in certifi's
+# bundle, so every outbound call fails with
+#   [SSL: CERTIFICATE_VERIFY_FAILED] self signed certificate in certificate chain
+# This must run before any HTTP client is constructed — the Anthropic
+# client is built at import time in agent_runtime.py — so it stays at
+# the very top of this file.
+try:
+    import truststore
+
+    truststore.inject_into_ssl()
+except ImportError:  # pragma: no cover - only if the optional dep is absent
+    pass
+
 from dotenv import load_dotenv
 
 # override=True on purpose. By default python-dotenv leaves an existing
