@@ -1,4 +1,4 @@
-# DemoForge (placeholder name)
+# DemoForge
 
 Turns a Postman collection into a live, narrative-driven demo app for
 pre-sales teams — instead of engineering hand-building a bespoke UI
